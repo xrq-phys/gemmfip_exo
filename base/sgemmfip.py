@@ -160,11 +160,11 @@ def generate_sgemm(mr, nr, a_packed, b_packed):
 
 
 if __name__ == "__main__":
-    M=6
-    N=8
-    K=2
+    M = 6
+    N = 8
+    K = 2
 
-    p=generate_sgemm(M,N,K,True ,True ); print(p)
-    p=generate_sgemm(M,N,K,True ,False); print(p)
-    p=generate_sgemm(M,N,K,False,True ); print(p)
-    p=generate_sgemm(M,N,K,False,False); print(p)
+    p = generate_sgemm(M, N ,True , True ); print(p)
+    p = generate_sgemm(M, N ,True , False); print(p)
+    p = generate_sgemm(M, N ,False, True ); print(p)
+    p = generate_sgemm(M, N ,False, False); print(p)
