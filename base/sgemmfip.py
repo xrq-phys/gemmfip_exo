@@ -17,7 +17,7 @@ def neon_vst_lane3_f32(dst: [f32][1] @ DRAM, src: [f32][4] @ Neon):
 
 # @proc
 def sgemmfip_mcxnr_getref(
-    kc: size,
+    kmax: size,
     mr: size,
     nr: size,
     a_packed: bool,
@@ -25,41 +25,49 @@ def sgemmfip_mcxnr_getref(
 ):
     def sgemmfip_mcxnr_ref(
         num_mr: size,
+        k: size,
+        rsC: size,
+        rsA: size,
+        rsB: size,
         alpha: f32[1] @ DRAM,
-        C: f32[num_mr * mr, nr] @ DRAM,
-        A: f32[num_mr * mr, kc] @ DRAM,
-        B: f32[kc, nr] @ DRAM,
+        C: f32[num_mr * mr, rsC] @ DRAM,
+        A: f32[num_mr * mr, rsA] @ DRAM,
+        B: f32[k, rsB] @ DRAM,
         beta: f32[1] @ DRAM,
-        Abuffer: f32[mr, num_mr * kc] @ DRAM,
-        Bbuffer: f32[nr, kc] @ DRAM,
+        Abuffer: f32[num_mr * kmax, mr] @ DRAM,
+        Bbuffer: f32[k, nr] @ DRAM,
     ):
+        assert k <= kmax
+        assert rsA >= k
+        assert rsB >= nr
+        assert rsC >= nr
 
         for ic in seq(0, num_mr):
-            for l in seq(0, kc):
+            for l in seq(0, k):
                 for jr in seq(0, nr):
                     for ir in seq(0, mr):
                         if a_packed:
                             if b_packed: # or ic > 0:
-                                C[ic * mr + ir, jr] += Abuffer[ir, l + ic * kc] * Bbuffer[jr, l] 
+                                C[ic * mr + ir, jr] += Abuffer[l + ic * kmax, ir] * Bbuffer[l, jr] 
                             else:
-                                C[ic * mr + ir, jr] += Abuffer[ir, l + ic * kc] * B[l, jr] 
-                                Bbuffer[jr, l] = B[l, jr]
+                                C[ic * mr + ir, jr] += Abuffer[l + ic * kmax, ir] * B[l, jr] 
+                                Bbuffer[l, jr] = B[l, jr]
                         else:
                             if b_packed: # or ic > 0:
-                                C[ic * mr + ir, jr] += A[ic * mr + ir, l] * Bbuffer[jr, l] 
+                                C[ic * mr + ir, jr] += A[ic * mr + ir, l] * Bbuffer[l, jr] 
                             else:
                                 C[ic * mr + ir, jr] += A[ic * mr + ir, l] * B[l, jr] 
-                                Bbuffer[jr, l] = B[l, jr]
-                            Abuffer[ir, l + ic * kc] = A[ic * mr + ir, l]
+                                Bbuffer[l, jr] = B[l, jr]
+                            Abuffer[l + ic * kmax, ir] = A[ic * mr + ir, l]
     return proc(sgemmfip_mcxnr_ref)
 
 
-def generate_sgemm(kc, mr, nr, a_packed, b_packed):
-    p = simplify(sgemmfip_mcxnr_getref(kc, mr, nr, a_packed, b_packed))
+def generate_sgemm(kmax, mr, nr, a_packed, b_packed):
+    p = simplify(sgemmfip_mcxnr_getref(kmax, mr, nr, a_packed, b_packed))
     # p = p.partial_eval(mr, nr, a_packed, b_packed)
     # print(p)
 
-    p = rename(p, "sgemmfip_{}x{}x{}_{}{}".format(mr, nr, kc, a_packed, b_packed))
+    p = rename(p, "sgemmfip_{}x{}x{}_{}{}".format(mr, nr, kmax, a_packed, b_packed))
     p = divide_loop(p, 'jr', 4, ['jr', 'jvec'], perfect=True)
     p = reorder_loops(p, 'jvec ir')
     print(p)
@@ -87,7 +95,7 @@ def generate_sgemm(kc, mr, nr, a_packed, b_packed):
 
 
     if a_packed:
-        p = bind_expr(p, 'Abuffer[_, l + {} * ic]'.format(kc), 'A_vec')
+        p = bind_expr(p, 'Abuffer[l + {} * ic, _]'.format(kmax), 'A_vec')
     else:
         p = bind_expr(p, 'A[ir + {} * ic, l]'.format(mr), 'A_vec', cse=True)
     p = set_memory(p, 'A_vec', Neon)
@@ -99,7 +107,7 @@ def generate_sgemm(kc, mr, nr, a_packed, b_packed):
     print(p)
 
     if b_packed:
-        p = bind_expr(p, 'Bbuffer[_, l]', 'B_vec')
+        p = bind_expr(p, 'Bbuffer[l, _]', 'B_vec')
     else:
         p = bind_expr(p, 'B[l, _]', 'B_vec', cse=True)
     p = set_memory(p, 'B_vec', Neon)
