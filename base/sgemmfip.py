@@ -8,7 +8,7 @@ from exo.platforms.neon import *
 from exo.stdlib.scheduling import *
 
 @exo.instr("vst1q_lane_f32(&{dst_data}, {src_data}, 3);")
-def neon_vst_lane3_f32(dst: [f32][1] @ DRAM, src: [f32][4] @ Neon4f):
+def neon_vst_lane3_f32(dst: [f32][1] @ DRAM, src: [f32][4] @ Neon):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
 
@@ -70,15 +70,16 @@ def generate_sgemm(kc, mr, nr, a_packed, b_packed):
     p = expand_dim(p, 'C_reg', nr // 4, 'jr', unsafe_disable_checks=True)
     print(p)
 
+    n_unpacked = [a_packed, b_packed].count(False)
 
     p = lift_alloc(p, 'C_reg', n_lifts=4)
     p = autofission(p, p.find('C_reg = _ #0').after(), n_lifts=4)
-    for i in range([a_packed, b_packed].count(False)):
-        p = reorder_stmts(p, p.find('C[_] = C_reg[_]').expand(1))
+    for i in range(n_unpacked):
+        p = reorder_stmts(p, p.find('C[_] = C_reg[_]').expand(0, 1))
     p = autofission(p, p.find('C[_] = _ #0').before(), n_lifts=4)
     print(p)
 
-    p = set_memory(p, 'C_reg', Neon4f)
+    p = set_memory(p, 'C_reg', Neon)
     p = replace(p, 'for jvec in _: _ #0', neon_vld_4xf32)
     p = replace(p, 'for jvec in _: _ #1', neon_vst_4xf32)
     p = simplify(p)
@@ -89,7 +90,7 @@ def generate_sgemm(kc, mr, nr, a_packed, b_packed):
         p = bind_expr(p, 'Abuffer[_, l + {} * ic]'.format(kc), 'A_vec')
     else:
         p = bind_expr(p, 'A[ir + {} * ic, l]'.format(mr), 'A_vec', cse=True)
-    p = set_memory(p, 'A_vec', Neon4f)
+    p = set_memory(p, 'A_vec', Neon)
     p = expand_dim(p, 'A_vec:_', '4', 'jvec')
     p = lift_alloc(p, 'A_vec:_', n_lifts=1)
     p = autofission(p, p.find('A_vec = _ #0').after(), n_lifts=1)
@@ -98,10 +99,10 @@ def generate_sgemm(kc, mr, nr, a_packed, b_packed):
     print(p)
 
     if b_packed:
-        p = bind_expr(p, 'Bbuffer[l, _]', 'B_vec')
+        p = bind_expr(p, 'Bbuffer[_, l]', 'B_vec')
     else:
         p = bind_expr(p, 'B[l, _]', 'B_vec', cse=True)
-    p = set_memory(p, 'B_vec', Neon4f)
+    p = set_memory(p, 'B_vec', Neon)
     p = autolift_alloc(p, 'B_vec:_', keep_dims=True)
     p = autofission(p, p.find('B_vec[_] = _').after())
     if not b_packed:
@@ -118,8 +119,10 @@ def generate_sgemm(kc, mr, nr, a_packed, b_packed):
 
     p = autofission(p, p.find('for jvec in _: _ #0').after(), n_lifts=2)
     p = autofission(p, p.find('for jvec in _: _ #1').after(), n_lifts=2)
-    p = autofission(p, p.find('for jvec in _: _ #2').after(), n_lifts=2)
-    p = autofission(p, p.find('for jvec in _: _ #3').after(), n_lifts=2)
+    if n_unpacked > 0:
+        p = autofission(p, p.find('for jvec in _: _ #2').after(), n_lifts=2)
+    if n_unpacked > 1:
+        p = autofission(p, p.find('for jvec in _: _ #3').after(), n_lifts=2)
     print(p)
 
     p = replace_all(p, neon_vld_4xf32)
