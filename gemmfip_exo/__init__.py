@@ -1,3 +1,3 @@
 from . import ref
 from . import platforms
-from .sgemmfip import GEMMFIP
+from .gemmfip import GEMMFIP
