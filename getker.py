@@ -1,4 +1,4 @@
-from base.sgemmfip import generate_sgemm
+from gemmfip_exo import generate_sgemm
 
 mr, nr, a_packed, b_packed = ( int(x) for x in input().split() )
 
