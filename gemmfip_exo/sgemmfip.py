@@ -2,78 +2,31 @@
 from __future__ import annotations
 import exo
 from exo import proc
-from exo.platforms.x86 import *
-from exo.platforms.neon import *
-
+from exo.platforms.neon import Neon
 from exo.stdlib.scheduling import *
 
-@exo.instr("vst1q_lane_f32(&{dst_data}, {src_data}, 3);")
-def neon_vst_lane3_f32(dst: [f32][1] @ DRAM, src: [f32][4] @ Neon):
-    assert stride(src, 0) == 1
-    assert stride(dst, 0) == 1
+from .ref.sgemmfip import sgemmfip_mcxnr_getref
+from .ref.dgemmfip import dgemmfip_mcxnr_getref
 
-    for i in seq(0, 4):
-        dst[0] = src[i]
+from .platforms import neon_f32
+from .platforms import neon_f64
 
-# @proc
-def sgemmfip_mcxnr_getref(
-    mr: size,
-    nr: size,
-    a_packed: bool,
-    b_packed: bool,
-):
-    def sgemmfip_mcxnr_ref(
-        num_mr: size,
-        k: size,
-        rsC: size,
-        rsA: size,
-        rsB: size,
-        alpha: f32[1] @ DRAM,
-        C: f32[num_mr * mr, rsC] @ DRAM,
-        A: f32[num_mr * mr, rsA] @ DRAM,
-        B: f32[k, rsB] @ DRAM,
-        beta: f32[1] @ DRAM,
-        Abuffer: f32[num_mr, k, mr] @ DRAM,
-        Bbuffer: f32[k, nr] @ DRAM,
-    ):
-        assert rsA >= k
-        assert rsB >= nr
-        assert rsC >= nr
+FMA = neon_f32.FMA
 
-        for ic in seq(0, num_mr):
-            for l in seq(0, k):
-                for jr in seq(0, nr):
-                    for ir in seq(0, mr):
-                        if a_packed:
-                            if b_packed: # or ic > 0:
-                                C[ic * mr + ir, jr] += Abuffer[ic, l, ir] * Bbuffer[l, jr] 
-                            else:
-                                C[ic * mr + ir, jr] += Abuffer[ic, l, ir] * B[l, jr] 
-                                Bbuffer[l, jr] = B[l, jr]
-                        else:
-                            if b_packed: # or ic > 0:
-                                C[ic * mr + ir, jr] += A[ic * mr + ir, l] * Bbuffer[l, jr] 
-                            else:
-                                C[ic * mr + ir, jr] += A[ic * mr + ir, l] * B[l, jr] 
-                                Bbuffer[l, jr] = B[l, jr]
-                            Abuffer[ic, l, ir] = A[ic * mr + ir, l]
-    return proc(sgemmfip_mcxnr_ref)
-
-
-def generate_sgemm(mr, nr, a_packed, b_packed):
+def generate_sgemm(mr, nr, a_packed, b_packed, mr_inner=None):
     p = simplify(sgemmfip_mcxnr_getref(mr, nr, a_packed, b_packed))
     # p = p.partial_eval(mr, nr, a_packed, b_packed)
     # print(p)
 
     p = rename(p, "sgemmfip_{}x{}_{}{}".format(mr, nr, a_packed, b_packed))
-    p = divide_loop(p, 'jr', 4, ['jr', 'jvec'], perfect=True)
+    p = divide_loop(p, 'jr', FMA.vlen, ['jr', 'jvec'], perfect=True)
     p = reorder_loops(p, 'jvec ir')
     print(p)
 
-    p = stage_mem(p, 'C[_] += _', 'C[ic * {} + ir, jr * 4 + jvec]'.format(mr), 'C_reg')
-    p = expand_dim(p, 'C_reg', 4, 'jvec', unsafe_disable_checks=True)
+    p = stage_mem(p, 'C[_] += _', 'C[ic * {} + ir, jr * {} + jvec]'.format(mr, FMA.vlen), 'C_reg')
+    p = expand_dim(p, 'C_reg', FMA.vlen, 'jvec', unsafe_disable_checks=True)
     p = expand_dim(p, 'C_reg', mr, 'ir', unsafe_disable_checks=True)
-    p = expand_dim(p, 'C_reg', nr // 4, 'jr', unsafe_disable_checks=True)
+    p = expand_dim(p, 'C_reg', nr // FMA.vlen, 'jr', unsafe_disable_checks=True)
     print(p)
 
     n_unpacked = [a_packed, b_packed].count(False)
@@ -86,8 +39,8 @@ def generate_sgemm(mr, nr, a_packed, b_packed):
     print(p)
 
     p = set_memory(p, 'C_reg', Neon)
-    p = replace(p, 'for jvec in _: _ #0', neon_vld_4xf32)
-    p = replace(p, 'for jvec in _: _ #1', neon_vst_4xf32)
+    p = replace(p, 'for jvec in _: _ #0', FMA.vld)
+    p = replace(p, 'for jvec in _: _ #1', FMA.vst)
     p = simplify(p)
     print(p)
 
@@ -97,7 +50,7 @@ def generate_sgemm(mr, nr, a_packed, b_packed):
     else:
         p = bind_expr(p, 'A[ir + {} * ic, l]'.format(mr), 'A_vec', cse=True)
     p = set_memory(p, 'A_vec', Neon)
-    p = expand_dim(p, 'A_vec:_', '4', 'jvec')
+    p = expand_dim(p, 'A_vec:_', str(FMA.vlen), 'jvec')
     p = lift_alloc(p, 'A_vec:_', n_lifts=1)
     p = autofission(p, p.find('A_vec = _ #0').after(), n_lifts=1)
     if not a_packed:
@@ -115,10 +68,15 @@ def generate_sgemm(mr, nr, a_packed, b_packed):
         p = autofission(p, p.find('Bbuffer[_] = _ #0').before(), n_lifts=1)
     print(p)
 
-    p = divide_loop(p, 'ir #1', 4, ['iro', 'iri'], perfect=True)
+    # Have to mr % mr_inner == 0.
+    # Inner loop is fully allocated to A-regs.
+    if mr_inner is None:
+        # TODO: Find the largest denominator smaller than remaining registers.
+        raise Exception("Not implemented: automatic mr_inner picking")
+    p = divide_loop(p, 'ir #1', mr_inner, ['iro', 'iri'], perfect=True)
     p = reorder_loops(p, 'jr iro')
-    p = expand_dim(p, 'A_vec', 4, 'iri', unsafe_disable_checks=True)
-    p = expand_dim(p, 'B_vec', 3, 'jr', unsafe_disable_checks=True)
+    p = expand_dim(p, 'A_vec', mr_inner, 'iri', unsafe_disable_checks=True)
+    p = expand_dim(p, 'B_vec', nr // FMA.vlen, 'jr', unsafe_disable_checks=True) # jr loops over range(nr // vlen)
     p = lift_alloc(p, 'A_vec:_', n_lifts=4)
     p = lift_alloc(p, 'B_vec:_', n_lifts=4)
     print(p)
@@ -131,13 +89,13 @@ def generate_sgemm(mr, nr, a_packed, b_packed):
         p = autofission(p, p.find('for jvec in _: _ #3').after(), n_lifts=2)
     print(p)
 
-    p = replace_all(p, neon_vld_4xf32)
-    p = replace_all(p, neon_broadcast_4xf32)
-    p = replace_all(p, neon_vfmadd_4xf32_4xf32)
+    p = replace_all(p, FMA.vld)
+    p = replace_all(p, FMA.vld_broadcast)
+    p = replace_all(p, FMA.vfma)
     if not b_packed:
-        p = replace_all(p, neon_vst_4xf32)
+        p = replace_all(p, FMA.vst)
     if not a_packed:
-        p = replace(p, 'for jvec in _: _ #0', neon_vst_lane3_f32)
+        p = replace(p, 'for jvec in _: _ #0', FMA.vst_uniform)
     print(p)
 
     # LD
@@ -164,7 +122,7 @@ if __name__ == "__main__":
     N = 8
     K = 2
 
-    p = generate_sgemm(M, N ,True , True ); print(p)
-    p = generate_sgemm(M, N ,True , False); print(p)
-    p = generate_sgemm(M, N ,False, True ); print(p)
-    p = generate_sgemm(M, N ,False, False); print(p)
+    p = generate_sgemm(M, N, True , True ); print(p)
+    p = generate_sgemm(M, N, True , False); print(p)
+    p = generate_sgemm(M, N, False, True ); print(p)
+    p = generate_sgemm(M, N, False, False); print(p)
