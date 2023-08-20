@@ -6,7 +6,7 @@ setup(
     description='Kernel generation templates for GEMMFIP',
     url='https://github.com/xrq-phys/sgemmfip_exo/',
     author='RuQing G. Xu',
-    packages=find_packages(exclude=['.github', 'sgemm_kers']),
+    packages=find_packages(exclude=['.github']),
     install_requires=[
         'exo_lang @ git+https://github.com/exo-lang/exo@master',
     ],
