@@ -49,6 +49,7 @@ class GEMMFIP:
         else:
             p = bind_expr(p, 'A[ir + {} * ic, l]'.format(mr), 'A_vec', cse=True)
         p = set_memory(p, 'A_vec', Neon)
+        p = set_precision(p, 'A_vec', FMA.prec)
         p = expand_dim(p, 'A_vec:_', str(FMA.vlen), 'jvec')
         p = lift_alloc(p, 'A_vec:_', n_lifts=1)
         p = autofission(p, p.find('A_vec = _ #0').after(), n_lifts=1)
@@ -61,6 +62,7 @@ class GEMMFIP:
         else:
             p = bind_expr(p, 'B[l, _]', 'B_vec', cse=True)
         p = set_memory(p, 'B_vec', Neon)
+        p = set_precision(p, 'B_vec', FMA.prec)
         p = autolift_alloc(p, 'B_vec:_', keep_dims=True)
         p = autofission(p, p.find('B_vec[_] = _').after())
         if not b_packed:

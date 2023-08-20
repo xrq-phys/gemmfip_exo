@@ -1,22 +1,23 @@
 #!/bin/bash
 
 out=$1
-mr=$2
-nr=$3
-pa=$4
-pb=$5
-mri=$6
+dtype=$(echo $2 | awk '{ print tolower($0) }')
+mr=$3
+nr=$4
+pa=$(echo $5 | awk '{ print tolower($0) }')
+pb=$(echo $6 | awk '{ print tolower($0) }')
+mri=$7
 
 if [[
 	( "$pa" != p && "$pa" != n ) ||
 	( "$pb" != p && "$pb" != n ) || "$mri" == "" ]]; then
 
-	echo "Usage: getker.sh <output_dir> <mr> <nr> <a_is_packed:p/n> <b_is_packed:p/n> <mr_inner>"
-	echo "Get: output_dir=$out mr=$mr nr=$nr a_is_packed=$pa b_is_packed=$pb mr_inner=$mri"
+	echo "Usage: getker.sh <output_dir> <dtype> <mr> <nr> <a_is_packed:p/n> <b_is_packed:p/n> <mr_inner>"
+	echo "Get: output_dir=$out dtype=$dtype mr=$mr nr=$nr a_is_packed=$pa b_is_packed=$pb mr_inner=$mri"
 	exit 1
 fi
 
-str="$mr $nr"
+str="$dtype $mr $nr"
 
 if [ $pa = p ]; then
 	str="$str 1"
