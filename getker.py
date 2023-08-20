@@ -17,8 +17,8 @@ a_packed = int(a_packed)
 b_packed = int(b_packed)
 mr_inner = int(mr_inner)
 
-a_packed = bool(a_packed)
-b_packed = bool(b_packed)
+a_packed = bool(int(a_packed))
+b_packed = bool(int(b_packed))
 
 if dtype == 'sh':
     generator = GEMMFIP(shgemmfip_mcxnr_getref, neon_f16.FMA)
