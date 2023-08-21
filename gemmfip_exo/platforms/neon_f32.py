@@ -13,6 +13,7 @@ def neon_vst_lane3_f32(dst: [f32][1] @ DRAM, src: [f32][4] @ Neon):
         dst[0] = src[i]
 
 class FMA:
+    Reg = Neon
     prec = 'f32'
     prefix = 's'
     vlen = 4

@@ -13,6 +13,7 @@ def neon_vst_lane1_f64(dst: [f64][1] @ DRAM, src: [f64][2] @ Neon):
         dst[0] = src[i]
 
 class FMA:
+    Reg = Neon
     prec = 'f64'
     prefix = 'd'
     vlen = 2

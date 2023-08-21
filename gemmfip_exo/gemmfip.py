@@ -2,7 +2,6 @@
 from __future__ import annotations
 import exo
 from exo import proc
-from exo.platforms.neon import Neon
 from exo.stdlib.scheduling import *
 
 
@@ -37,7 +36,7 @@ class GEMMFIP:
         p = autofission(p, p.find('C[_] = _ #0').before(), n_lifts=4)
         print(p)
 
-        p = set_memory(p, 'C_reg', Neon)
+        p = set_memory(p, 'C_reg', FMA.Reg)
         p = replace(p, 'for jvec in _: _ #0', FMA.vld)
         p = replace(p, 'for jvec in _: _ #1', FMA.vst)
         p = simplify(p)
@@ -51,7 +50,7 @@ class GEMMFIP:
                 p = bind_expr(p, 'A[ir + {} * ic, l]'.format(mr), 'A_vec', cse=True)
             else:
                 p = bind_expr(p, 'A[l, ir + {} * ic]'.format(mr), 'A_vec', cse=True)
-        p = set_memory(p, 'A_vec', Neon)
+        p = set_memory(p, 'A_vec', FMA.Reg)
         p = set_precision(p, 'A_vec', FMA.prec)
         p = expand_dim(p, 'A_vec:_', str(FMA.vlen), 'jvec')
         p = lift_alloc(p, 'A_vec:_', n_lifts=1)
@@ -64,7 +63,7 @@ class GEMMFIP:
             p = bind_expr(p, 'Bbuffer[l, _]', 'B_vec')
         else:
             p = bind_expr(p, 'B[l, _]', 'B_vec', cse=True)
-        p = set_memory(p, 'B_vec', Neon)
+        p = set_memory(p, 'B_vec', FMA.Reg)
         p = set_precision(p, 'B_vec', FMA.prec)
         p = autolift_alloc(p, 'B_vec:_', keep_dims=True)
         p = autofission(p, p.find('B_vec[_] = _').after())

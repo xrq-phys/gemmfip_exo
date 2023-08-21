@@ -13,6 +13,7 @@ def neon_vst_lane7_f16(dst: [f16][1] @ DRAM, src: [f16][8] @ Neon):
         dst[0] = src[i]
 
 class FMA:
+    Reg = Neon
     prec = 'f16'
     prefix = 'sh'
     vlen = 8

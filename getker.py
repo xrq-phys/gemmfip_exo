@@ -7,6 +7,7 @@ from gemmfip_exo.ref.dgemmfip import dgemmfip_mcxnr_getref
 from gemmfip_exo.platforms import neon_f16
 from gemmfip_exo.platforms import neon_f32
 from gemmfip_exo.platforms import neon_f64
+from gemmfip_exo.platforms import avx2_f32
 
 
 dtype, mr, nr, a_transpose, a_packed, b_packed, mr_inner = tuple(input().split())
@@ -24,6 +25,7 @@ b_packed = bool(int(b_packed))
 if dtype == 'sh':
     generator = GEMMFIP(shgemmfip_mcxnr_getref, neon_f16.FMA)
 elif dtype == 's':
+    # generator = GEMMFIP(sgemmfip_mcxnr_getref, avx2_f32.FMA)
     generator = GEMMFIP(sgemmfip_mcxnr_getref, neon_f32.FMA)
 elif dtype == 'd':
     generator = GEMMFIP(dgemmfip_mcxnr_getref, neon_f64.FMA)
