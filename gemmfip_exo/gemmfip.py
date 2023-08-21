@@ -11,13 +11,13 @@ class GEMMFIP:
         self.getref = getref
         self.FMA = FMA
 
-    def generate(self, mr, nr, a_packed, b_packed, mr_inner=None):
-        p = simplify(self.getref(mr, nr, a_packed, b_packed))
+    def generate(self, mr, nr, a_transpose, a_packed, b_packed, mr_inner=None):
+        p = simplify(self.getref(mr, nr, a_transpose, a_packed, b_packed))
         # p = p.partial_eval(mr, nr, a_packed, b_packed)
         # print(p)
         FMA = self.FMA
 
-        p = rename(p, "{}gemmfip_{}x{}_{}{}".format(FMA.prefix, mr, nr, a_packed, b_packed))
+        p = rename(p, "{}gemmfip_{}_{}x{}_{}_{}".format(FMA.prefix, a_transpose, mr, nr, a_packed, b_packed))
         p = divide_loop(p, 'jr', FMA.vlen, ['jr', 'jvec'], perfect=True)
         p = reorder_loops(p, 'jvec ir')
         print(p)
@@ -47,7 +47,10 @@ class GEMMFIP:
         if a_packed:
             p = bind_expr(p, 'Abuffer[ic, l, _]', 'A_vec')
         else:
-            p = bind_expr(p, 'A[ir + {} * ic, l]'.format(mr), 'A_vec', cse=True)
+            if not a_transpose:
+                p = bind_expr(p, 'A[ir + {} * ic, l]'.format(mr), 'A_vec', cse=True)
+            else:
+                p = bind_expr(p, 'A[l, ir + {} * ic]'.format(mr), 'A_vec', cse=True)
         p = set_memory(p, 'A_vec', Neon)
         p = set_precision(p, 'A_vec', FMA.prec)
         p = expand_dim(p, 'A_vec:_', str(FMA.vlen), 'jvec')
