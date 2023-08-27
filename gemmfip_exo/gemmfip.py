@@ -117,5 +117,21 @@ class GEMMFIP:
         # ST
         p = unroll_loop(p, 'ir #0')
         p = unroll_loop(p, 'jr #0')
+        p = simplify(p)
+        print(p)
+
+        p = unroll_buffer(p, 'A_vec: _', 0)
+        p = unroll_buffer(p, 'B_vec: _', 0)
+        p = simplify(unroll_buffer(p, 'C_reg: _', 1))
+        for ir in range(mr):
+            p = simplify(unroll_buffer(p, 'C_reg_{}: _'.format(ir), 0))
+        print(p)
+
+        # TODO: This unrolling makes no compiler happy.
+        # Currently use Clang's #pragma unroll 4 instead.
+        # p = divide_loop(p, 'l', 4, ['lo', 'li'], perfect=False, tail='cut')
+        # p = unroll_loop(p, 'li #0')
+        # p = simplify(p)
+        # print(p)
         return p
 
